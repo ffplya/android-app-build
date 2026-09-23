@@ -19,15 +19,29 @@ jobs:
           mkdir -p project
           unzip -q ff-best.zip -d project
 
-      - name: Find Gradle project
+      - name: Find Android project
         run: |
           GRADLEW=$(find project -type f -name gradlew | head -n 1)
+
           if [ -z "$GRADLEW" ]; then
-            echo "gradlew not found in ff-best.zip"
-            exit 1
+            echo "gradlew not found. Searching for Gradle project..."
+
+            SETTINGS=$(find project -type f \( -name settings.gradle -o -name settings.gradle.kts \) | head -n 1)
+
+            if [ -z "$SETTINGS" ]; then
+              echo "Android Gradle project not found in ff-best.zip"
+              find project -maxdepth 3 -type f | head -n 100
+              exit 1
+            fi
+
+            PROJECT_DIR=$(dirname "$SETTINGS")
+            echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+            echo "No gradlew found, using system Gradle."
+
+          else
+            PROJECT_DIR=$(dirname "$GRADLEW")
+            echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           fi
-          PROJECT_DIR=$(dirname "$GRADLEW")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -35,18 +49,32 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Make Gradle executable
-        run: chmod +x "$PROJECT_DIR/gradlew"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Build Debug APK
         working-directory: ${{ env.PROJECT_DIR }}
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug --stacktrace
+          else
+            gradle assembleDebug --stacktrace
+          fi
+
+      - name: Find APK
+        run: |
+          APK=$(find "${{ env.PROJECT_DIR }}" -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "APK not found"
+            exit 1
+          fi
+
+          echo "APK=$APK" >> "$GITHUB_ENV"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: |
-            ${{ env.PROJECT_DIR }}/**/build/outputs/apk/**/*.apk
-            ${{ env.PROJECT_DIR }}/**/build/outputs/apk/**/*.aab
-          if-no-files-found: error
+          path: ${{ env.APK }}
