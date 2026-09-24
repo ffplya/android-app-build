@@ -24,24 +24,20 @@ jobs:
           GRADLEW=$(find project -type f -name gradlew | head -n 1)
 
           if [ -z "$GRADLEW" ]; then
-            echo "gradlew not found. Searching for Gradle project..."
-
             SETTINGS=$(find project -type f \( -name settings.gradle -o -name settings.gradle.kts \) | head -n 1)
 
             if [ -z "$SETTINGS" ]; then
               echo "Android Gradle project not found in ff-best.zip"
-              find project -maxdepth 3 -type f | head -n 100
               exit 1
             fi
 
             PROJECT_DIR=$(dirname "$SETTINGS")
-            echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-            echo "No gradlew found, using system Gradle."
-
           else
             PROJECT_DIR=$(dirname "$GRADLEW")
-            echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -51,6 +47,19 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Create Android debug keystore
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          keytool -genkeypair -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Build Debug APK
         working-directory: ${{ env.PROJECT_DIR }}
@@ -72,9 +81,10 @@ jobs:
           fi
 
           echo "APK=$APK" >> "$GITHUB_ENV"
+          echo "Found APK: $APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
+          name: app-debug
           path: ${{ env.APK }}
